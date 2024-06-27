@@ -1,147 +1,176 @@
-#include <list>
-#include <vector>
-#include <cmath> // Para a função abs
-#include <algorithm>
 #include <iostream>
+#include <vector>
+#include <algorithm>
+#include <numeric>
+#include <cmath>
+#include<opencv2/core/core.hpp>
+#include<opencv2/highgui/highgui.hpp>
+#include<opencv2/video/video.hpp>
+#include <opencv2/opencv.hpp>
 
 using namespace std;
+using namespace cv;
 
-typedef struct Aresta{
-  int origem;
-  int destino;
-  float peso;
-} Aresta;
+// Estrutura para representar um pixel
+struct Pixel {
+    int x, y;
+    Vec3b color;
+};
 
-typedef struct Componente{
-  std::list<int> vertices;
-  float variancia;
-} Componente;
+// Estrutura para representar uma aresta
+struct Edge {
+    int u, v;
+    double weight;
 
-int encontrarPai(int v, vector<int>& pai) {
-    cout << "Encontrar pai de " << v << endl;
-    if (pai[v] != v) {
-        cout << "Passei aqui:" << pai[v] << endl;
-        pai[v] = encontrarPai(pai[v], pai);
+    bool operator<(const Edge& other) const {
+        return weight < other.weight;
     }
-    cout << "Valor do pai:" << pai[v] << endl;
-    return pai[v];
+};
+
+// Função para calcular a diferença de intensidade entre dois pixels
+double intensityDifference(const Pixel& p1, const Pixel& p2) {
+    Vec3b c1 = p1.color;
+    Vec3b c2 = p2.color;
+    return sqrt((c1[0] - c2[0]) * (c1[0] - c2[0]) +
+                (c1[1] - c2[1]) * (c1[1] - c2[1]) +
+                (c1[2] - c2[2]) * (c1[2] - c2[2]));
 }
 
-double calcularNovaVariancia(const Componente& componente) {
-    return 0.0; // Implementação fictícia
-}
+// Função para construir o grafo de imagem
+vector<Edge> buildGraph(const Mat& image, vector<Pixel>& pixels) {
+    int rows = image.rows;
+    int cols = image.cols;
+    vector<Edge> edges;
 
-void unirComponente(int origem, int destino, vector<int>& pai, vector<int>& rank) {
-    int pai_origem = encontrarPai(origem, pai);
-    int pai_destino = encontrarPai(destino, pai);
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            Pixel p1 = {x, y, image.at<Vec3b>(y, x)};
+            pixels.push_back(p1);
 
-    if (rank[pai_origem] < rank[pai_destino]) {
-        pai[pai_origem] = pai_destino;
-    } else if (rank[pai_origem] > rank[pai_destino]) {
-        pai[pai_destino] = pai_origem;
-    } else {
-        pai[pai_destino] = pai_origem;
-        rank[pai_origem]++;
-    }
-}
-
-float diferencaIntensidade(int pixel1, int pixel2) {
-    return abs(pixel1 - pixel2);
-}
-
-vector<Aresta> construirGrafo(const vector<vector<int>>& imagem) {
-    int linhas = imagem.size();
-    cout << "Tamanho da liha: "<< linhas << endl;
-    int colunas = imagem[0].size();
-    cout << "Tamanho da liha: " << colunas << endl;
-    vector<Aresta> arestas;
-
-    for (int i = 0; i < linhas; i++) {
-        for (int j = 0; j < colunas; j++) {
-            if (j < colunas - 1) {
-                arestas.push_back({i * colunas + j, i * colunas + (j + 1), diferencaIntensidade(imagem[i][j], imagem[i][j + 1])});
+            if (x > 0) {
+                Pixel p2 = {x - 1, y, image.at<Vec3b>(y, x - 1)};
+                edges.push_back({y * cols + x, y * cols + x - 1, intensityDifference(p1, p2)});
             }
-            if (i < linhas - 1) {
-                arestas.push_back({i * colunas + j, (i + 1) * colunas + j, diferencaIntensidade(imagem[i][j], imagem[i + 1][j])});
-            }
-        }
-    }
-    return arestas;
-}
-
-void construirMST(vector<Aresta>& arestas, int numeroDeVertices, float limite) {
-    vector<int> pai(numeroDeVertices);
-    vector<int> rank(numeroDeVertices, 0);
-    vector<Componente> componente(numeroDeVertices); 
-
-    for (int i = 0; i < numeroDeVertices; i++) {
-        pai[i] = i;
-        componente[i] = Componente();
-        componente[i].vertices = list<int>();
-        componente[i].vertices.push_back(i);
-        componente[i].variancia = 0;
-    }
-
-    sort(arestas.begin(), arestas.end(), [](const Aresta& a, const Aresta& b) {
-        return a.peso < b.peso;
-    });
-
-    for (const auto& aresta : arestas) {
-        int origem = aresta.origem;
-        int destino = aresta.destino;
-        float peso = aresta.peso;
-
-        int raizOrigem = encontrarPai(origem, pai);
-        int raizDestino = encontrarPai(destino, pai);
-
-        if (raizOrigem != raizDestino) {
-            float varianciaInternaOrigem = componente[raizOrigem].variancia;
-            float varianciaInternaDestino = componente[raizDestino].variancia;
-
-            if (peso <= limite * (varianciaInternaOrigem + varianciaInternaDestino)) {
-                unirComponente(origem, destino, pai, rank);
-
-                int novaRaiz = encontrarPai(origem, pai);
-                componente[novaRaiz].vertices.insert(
-                    componente[novaRaiz].vertices.end(),
-                    componente[raizOrigem].vertices.begin(),
-                    componente[raizOrigem].vertices.end()
-                );
-                componente[novaRaiz].vertices.insert(
-                    componente[novaRaiz].vertices.end(),
-                    componente[raizDestino].vertices.begin(),
-                    componente[raizDestino].vertices.end()
-                );
-                componente[novaRaiz].variancia = calcularNovaVariancia(componente[novaRaiz]);
+            if (y > 0) {
+                Pixel p2 = {x, y - 1, image.at<Vec3b>(y - 1, x)};
+                edges.push_back({y * cols + x, (y - 1) * cols + x, intensityDifference(p1, p2)});
             }
         }
     }
 
-    for (int i = 0; i < numeroDeVertices; i++) {
-        if (pai[i] == i) {
-            cout << "Componente: ";
-            for (int vertice : componente[i].vertices) {
-                cout << vertice << " ";
-            }
-            cout << endl;
-        }
-    }
+    return edges;
 }
 
+// Classe para representar um conjunto disjunto com união por rank e compressão de caminho
+class DisjointSet {
+private:
+    vector<int> parent, rank, size;
+
+public:
+    DisjointSet(int n) : parent(n), rank(n, 0), size(n, 1) {
+        iota(parent.begin(), parent.end(), 0);
+    }
+
+    int find(int u) {
+        if (parent[u] != u) {
+            parent[u] = find(parent[u]); // Compressão de caminho
+        }
+        return parent[u];
+    }
+
+    void unionSets(int u, int v) {
+        int rootU = find(u);
+        int rootV = find(v);
+        if (rootU != rootV) {
+            if (rank[rootU] > rank[rootV]) {
+                parent[rootV] = rootU;
+                size[rootU] += size[rootV];
+            } else {
+                parent[rootU] = rootV;
+                size[rootV] += size[rootU];
+                if (rank[rootU] == rank[rootV]) {
+                    rank[rootV]++;
+                }
+            }
+        }
+    }
+
+    int getSize(int u) {
+        int root = find(u);
+        return size[root];
+    }
+};
+
+// Função para encontrar a AGM usando o algoritmo de Kruskal
+vector<Edge> findMST(vector<Edge>& edges, int numVertices) {
+    sort(edges.begin(), edges.end());
+    DisjointSet ds(numVertices);
+    vector<Edge> mst;
+
+    for (Edge& edge : edges) {
+        if (ds.find(edge.u) != ds.find(edge.v)) {
+            mst.push_back(edge);
+            ds.unionSets(edge.u, edge.v);
+        }
+    }
+
+    return mst;
+}
+
+// Função principal para segmentação de imagens
+Mat imageSegmentation(const Mat& image, double k) {
+    int rows = image.rows;
+    int cols = image.cols;
+    int numPixels = rows * cols;
+
+    vector<Pixel> pixels;
+    vector<Edge> edges = buildGraph(image, pixels);
+    vector<Edge> mst = findMST(edges, numPixels);
+
+    DisjointSet ds(numPixels);
+    vector<double> threshold(numPixels, k);
+
+    for (Edge& edge : mst) {
+        int u = edge.u;
+        int v = edge.v;
+        int setU = ds.find(u);
+        int setV = ds.find(v);
+
+        if (setU != setV) {
+            if (edge.weight <= min(threshold[setU], threshold[setV])) {
+                ds.unionSets(setU, setV);
+                int newSet = ds.find(setU);
+                threshold[newSet] = edge.weight + k / ds.getSize(newSet);
+            }
+        }
+    }
+
+    Mat segmented(image.size(), CV_8UC3);
+    for (int y = 0; y < rows; y++) {
+        for (int x = 0; x < cols; x++) {
+            int comp = ds.find(y * cols + x);
+            segmented.at<Vec3b>(y, x) = pixels[comp].color;
+        }
+    }
+
+    return segmented;
+}
+
+// Exemplo de uso
 int main() {
-    vector<vector<int>> imagem = {
-        {10, 20, 30},
-        {20, 30, 40},
-        {30, 40, 50}
-    };
+    Mat image = imread("imagem.jpg");
 
-    int linhas = imagem.size();
-    int colunas = imagem[0].size();
-    int numeroDeVertices = linhas * colunas;
-    vector<Aresta> arestas = construirGrafo(imagem);
-    float limite = 1.5;
+    if (image.empty()) {
+        cerr << "Erro ao carregar a imagem!" << endl;
+        return -1;
+    }
 
-    construirMST(arestas, numeroDeVertices, limite);
+    double k = 500.0; // Parâmetro para controle da segmentação
+    Mat segmented = imageSegmentation(image, k);
+
+    imshow("Original", image);
+    imshow("Segmentada", segmented);
+    waitKey(0);
 
     return 0;
 }
